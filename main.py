@@ -98,7 +98,7 @@ def monitor_tokens(token_list):
 def start_bot():
     token_list = [
         # Contoh token list default, bisa ganti sendiri
-        "TOKEN_CONTRACT_ADDRESS_1",
+        "GnkitxfvNLGGsXKGckU2Bw9uEnzwmVmJKzTaHpp1pump",
         "TOKEN_CONTRACT_ADDRESS_2",
         "TOKEN_CONTRACT_ADDRESS_3"
     ]
