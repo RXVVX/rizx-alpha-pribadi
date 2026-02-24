@@ -1,6 +1,5 @@
 import os
 import requests
-import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
@@ -12,43 +11,34 @@ RPC_URL = "https://api.mainnet-beta.solana.com"
 
 # ===== Fungsi Ambil Data Token =====
 def get_token_data(token_address):
-    try:
-        headers = {"X-API-KEY": BIRDEYE_API}
-        url = f"https://public-api.birdeye.so/public/token_overview?address={token_address}"
-        r = requests.get(url, headers=headers, timeout=10)
-        return r.json()
-    except:
-        return {}
+    headers = {"X-API-KEY": BIRDEYE_API}
+    url = f"https://public-api.birdeye.so/public/token_overview?address={token_address}"
+    r = requests.get(url, headers=headers, timeout=10)
+    return r.json()
 
 # ===== Fungsi Cek Authority =====
 def check_authority(token_address):
-    try:
-        payload = {
-            "jsonrpc":"2.0",
-            "id":1,
-            "method":"getAccountInfo",
-            "params":[token_address, {"encoding":"jsonParsed"}]
-        }
-        r = requests.post(RPC_URL, json=payload, timeout=10)
-        info = r.json()["result"]["value"]["data"]["parsed"]["info"]
-        mint = info.get("mintAuthority")
-        freeze = info.get("freezeAuthority")
-        if mint: return "🚨 Dev masih bisa CETAK token"
-        if freeze: return "⚠ Token bisa dibekukan"
-        return "🟢 Supply Aman (Authority dimatikan)"
-    except:
-        return "❓ Tidak bisa cek authority"
+    payload = {
+        "jsonrpc":"2.0",
+        "id":1,
+        "method":"getAccountInfo",
+        "params":[token_address, {"encoding":"jsonParsed"}]
+    }
+    r = requests.post(RPC_URL, json=payload, timeout=10)
+    info = r.json()["result"]["value"]["data"]["parsed"]["info"]
+    mint = info.get("mintAuthority")
+    freeze = info.get("freezeAuthority")
+    if mint: return "🚨 Dev masih bisa CETAK token"
+    if freeze: return "⚠ Token bisa dibekukan"
+    return "🟢 Supply Aman (Authority dimatikan)"
 
 # ===== Fungsi Analisis Token =====
 def analyze_token(token_address):
     data = get_token_data(token_address)
-    try:
-        name = data["data"]["name"]
-        liq = float(data["data"]["liquidity"])
-        holders = int(data["data"]["holder"])
-        vol = float(data["data"]["v24hUSD"])
-    except:
-        return f"❌ Token {token_address} tidak ditemukan."
+    name = data["data"]["name"]
+    liq = float(data["data"]["liquidity"])
+    holders = int(data["data"]["holder"])
+    vol = float(data["data"]["v24hUSD"])
 
     authority = check_authority(token_address)
     whale_alert = ""
@@ -83,11 +73,8 @@ def analyze_token(token_address):
 
 # ===== Kirim Alert =====
 async def send_alert(token_address, chat_id, context):
-    try:
-        msg = analyze_token(token_address)
-        await context.bot.send_message(chat_id=chat_id, text=msg)
-    except Exception as e:
-        print(f"❌ Gagal kirim alert: {e}")
+    msg = analyze_token(token_address)
+    await context.bot.send_message(chat_id=chat_id, text=msg)
 
 # ===== Handler Pesan Telegram =====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -102,15 +89,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def start_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-
     # Test alert saat start
     async def test_alert():
-        try:
-            await app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="🔥 BOT PRIBADI AKTIF – Siap scan token via Telegram")
-        except:
-            pass
+        await app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="🔥 BOT PRIBADI AKTIF – Siap scan token via Telegram")
     app.post_init.append(lambda app: asyncio.create_task(test_alert()))
-
     app.run_polling()
 
 # ===== Main =====
