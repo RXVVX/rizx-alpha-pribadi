@@ -1,16 +1,14 @@
 import os
 import requests
 import asyncio
-from telegram import Bot, Update
+from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
 # ===== Environment Variables =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 BIRDEYE_API = os.getenv("BIRDEYE_API")
-TELEGRAM_CHAT_ID = os.getenv("CHAT_ID")  # ID Telegram pribadi kamu
+TELEGRAM_CHAT_ID = int(os.getenv("CHAT_ID"))  # ID Telegram pribadi kamu
 RPC_URL = "https://api.mainnet-beta.solana.com"
-
-bot = Bot(BOT_TOKEN)
 
 # ===== Fungsi Ambil Data Token dari Birdeye =====
 def get_token_data(ca):
@@ -82,11 +80,11 @@ def analyze_token(ca):
     )
     return msg
 
-# ===== Fungsi Kirim Alert Token =====
-async def send_token_alert(ca, chat_id):
+# ===== Fungsi Kirim Alert Async =====
+async def send_token_alert(ca, chat_id, context):
     try:
         msg = analyze_token(ca)
-        await bot.send_message(chat_id=chat_id, text=msg)
+        await context.bot.send_message(chat_id=chat_id, text=msg)
     except Exception as e:
         print(f"❌ Gagal kirim alert token {ca}: {e}")
 
@@ -94,9 +92,9 @@ async def send_token_alert(ca, chat_id):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     text = update.message.text.strip()
-    # Validasi contract address Solana (panjang 40–50 karakter)
-    if len(text) >= 40 and len(text) <= 50:
-        await send_token_alert(text, chat_id)
+    # Validasi contract address Solana (40–50 karakter)
+    if 40 <= len(text) <= 50:
+        await send_token_alert(text, chat_id, context)
     else:
         await update.message.reply_text("❌ Format token tidak valid. Pastikan kamu mengirim contract address token Solana.")
 
@@ -106,11 +104,13 @@ def start_bot():
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
 
     # Test kirim pesan awal ke CHAT_ID
-    try:
-        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="🔥 BOT PRIBADI AKTIF – Siap scan token via Telegram")
-    except Exception as e:
-        print(f"❌ Gagal kirim test alert: {e}")
+    async def test_alert():
+        try:
+            await app.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="🔥 BOT PRIBADI AKTIF – Siap scan token via Telegram")
+        except Exception as e:
+            print(f"❌ Gagal kirim test alert: {e}")
 
+    app.post_init.append(lambda app: asyncio.create_task(test_alert()))
     app.run_polling()
 
 # ===== Jalankan Bot =====
