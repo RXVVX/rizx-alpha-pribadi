@@ -1,0 +1,14 @@
+{
+  "name": "solmatrix-ai",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "canvas": "^2.11.2",
+    "dotenv": "^16.3.1",
+    "node-telegram-bot-api": "^0.66.0"
+  }
+}
