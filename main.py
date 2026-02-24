@@ -3,11 +3,12 @@ import requests
 import time
 from threading import Thread
 from telegram import Bot
+from telegram.ext import Updater, MessageHandler, Filters
 
 # ===== Environment Variables =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 BIRDEYE_API = os.getenv("BIRDEYE_API")
-TELEGRAM_CHAT_ID = os.getenv("CHAT_ID")  # ID Telegram kamu
+TELEGRAM_CHAT_ID = os.getenv("CHAT_ID")  # ID Telegram pribadi kamu
 RPC_URL = "https://api.mainnet-beta.solana.com"
 
 bot = Bot(BOT_TOKEN)
@@ -80,42 +81,41 @@ def analyze_token(ca):
         "🧠 Kesimpulan:\n"
         "Gunakan alat bantu ini untuk pribadi. High risk tetap ada."
     )
-
     return msg
 
-# ===== Fungsi Monitor Token List =====
-def monitor_tokens(token_list):
-    while True:
-        for ca in token_list:
-            try:
-                msg = analyze_token(ca)
-                bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg)
-            except Exception as e:
-                print(f"❌ Gagal kirim alert token {ca}: {e}")
-        time.sleep(300)  # scan tiap 5 menit
-
-# ===== Fungsi Start Bot =====
-def start_bot():
-    token_list = [
-        # Contoh token list default, bisa ganti sendiri
-        "GnkitxfvNLGGsXKGckU2Bw9uEnzwmVmJKzTaHpp1pump",
-        "TOKEN_CONTRACT_ADDRESS_2",
-        "TOKEN_CONTRACT_ADDRESS_3"
-    ]
-
-    # Kirim pesan test untuk pastikan Telegram bisa menerima
+# ===== Fungsi Kirim Alert Token =====
+def send_token_alert(ca, chat_id):
     try:
-        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="🔥 BOT PRIBADI AKTIF – TEST ALERT")
+        msg = analyze_token(ca)
+        bot.send_message(chat_id=chat_id, text=msg)
+    except Exception as e:
+        print(f"❌ Gagal kirim alert token {ca}: {e}")
+
+# ===== Handler Pesan Telegram =====
+def handle_message(update, context):
+    chat_id = update.effective_chat.id
+    text = update.message.text.strip()
+    # Cek apakah input kemungkinan contract address Solana (biasanya 43–44 karakter)
+    if len(text) >= 40 and len(text) <= 50:
+        send_token_alert(text, chat_id)
+    else:
+        bot.send_message(chat_id=chat_id, text="❌ Format token tidak valid. Pastikan kamu mengirim contract address token Solana.")
+
+# ===== Start Bot =====
+def start_bot():
+    updater = Updater(BOT_TOKEN, use_context=True)
+    dp = updater.dispatcher
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+
+    # Test kirim pesan awal ke CHAT_ID
+    try:
+        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="🔥 BOT PRIBADI AKTIF – Siap scan token via Telegram")
     except Exception as e:
         print(f"❌ Gagal kirim test alert: {e}")
 
-    # Start thread monitoring
-    Thread(target=monitor_tokens, args=(token_list,), daemon=True).start()
-    print("BOT PRIBADI AKTIF...")
+    updater.start_polling()
+    updater.idle()
 
 # ===== Jalankan Bot =====
 if __name__ == "__main__":
     start_bot()
-    # Loop supaya thread tetap hidup 24 jam
-    while True:
-        time.sleep(60)
