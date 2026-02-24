@@ -1,9 +1,8 @@
 import os
 import requests
-import time
-from threading import Thread
-from telegram import Bot
-from telegram.ext import Updater, MessageHandler, Filters
+import asyncio
+from telegram import Bot, Update
+from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
 # ===== Environment Variables =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -84,28 +83,27 @@ def analyze_token(ca):
     return msg
 
 # ===== Fungsi Kirim Alert Token =====
-def send_token_alert(ca, chat_id):
+async def send_token_alert(ca, chat_id):
     try:
         msg = analyze_token(ca)
-        bot.send_message(chat_id=chat_id, text=msg)
+        await bot.send_message(chat_id=chat_id, text=msg)
     except Exception as e:
         print(f"❌ Gagal kirim alert token {ca}: {e}")
 
 # ===== Handler Pesan Telegram =====
-def handle_message(update, context):
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     text = update.message.text.strip()
-    # Cek apakah input kemungkinan contract address Solana (biasanya 43–44 karakter)
+    # Validasi contract address Solana (panjang 40–50 karakter)
     if len(text) >= 40 and len(text) <= 50:
-        send_token_alert(text, chat_id)
+        await send_token_alert(text, chat_id)
     else:
-        bot.send_message(chat_id=chat_id, text="❌ Format token tidak valid. Pastikan kamu mengirim contract address token Solana.")
+        await update.message.reply_text("❌ Format token tidak valid. Pastikan kamu mengirim contract address token Solana.")
 
 # ===== Start Bot =====
 def start_bot():
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
 
     # Test kirim pesan awal ke CHAT_ID
     try:
@@ -113,8 +111,7 @@ def start_bot():
     except Exception as e:
         print(f"❌ Gagal kirim test alert: {e}")
 
-    updater.start_polling()
-    updater.idle()
+    app.run_polling()
 
 # ===== Jalankan Bot =====
 if __name__ == "__main__":
