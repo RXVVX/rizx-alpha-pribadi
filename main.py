@@ -102,7 +102,3 @@ if __name__ == "__main__":
     start_bot()
     if __name__ == "__main__":
     start_bot()
-    # Tambahkan loop supaya main thread tetap hidup
-    import time
-    while True:
-        time.sleep(60)
