@@ -1,7 +1,6 @@
 require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
 const axios = require("axios");
-const { createCanvas } = require("canvas");
 
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
@@ -46,81 +45,19 @@ function calculateAI(data) {
 }
 
 /* ===============================
-   CANVAS ELITE UI
-================================ */
-function generateCanvas(tokenName, symbol, ai, price) {
-  const width = 1000;
-  const height = 950;
-  const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext("2d");
-
-  const bg = ctx.createLinearGradient(0, 0, width, height);
-  bg.addColorStop(0, "#0f2027");
-  bg.addColorStop(1, "#203a43");
-  bg.addColorStop(2, "#2c5364");
-
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, width, height);
-
-  ctx.textAlign = "center";
-  ctx.fillStyle = "#ffffff";
-
-  ctx.font = "bold 60px Sans";
-  ctx.fillText("SOLMATRIX ELITE AI", width / 2, 90);
-
-  ctx.font = "38px Sans";
-  ctx.fillText(`${tokenName} (${symbol})`, width / 2, 160);
-
-  ctx.font = "30px Sans";
-  ctx.fillText(`Price: $${price}`, width / 2, 210);
-
-  ctx.font = "bold 40px Sans";
-  ctx.fillText(`Status: ${ai.status}`, width / 2, 270);
-
-  drawStat(ctx, "Risk Score", ai.risk, 350);
-  drawStat(ctx, "Momentum", ai.momentum, 450);
-
-  ctx.font = "bold 45px Sans";
-  ctx.fillText(`AI Confidence: ${ai.confidence}%`, width / 2, 650);
-
-  drawBar(ctx, 250, 690, 500, 35, ai.confidence);
-
-  ctx.font = "25px Sans";
-  ctx.fillText(
-    "Analisa berdasarkan data market realtime • Bukan jaminan profit",
-    width / 2,
-    880
-  );
-
-  return canvas.toBuffer();
-}
-
-function drawStat(ctx, label, value, y) {
-  ctx.font = "32px Sans";
-  ctx.fillText(`${label}: ${value}/100`, 500, y);
-  drawBar(ctx, 250, y + 30, 500, 25, value);
-}
-
-function drawBar(ctx, x, y, width, height, value) {
-  ctx.fillStyle = "#1f2937";
-  ctx.fillRect(x, y, width, height);
-
-  const g = ctx.createLinearGradient(x, y, x + width, y);
-  g.addColorStop(0, "#00f2fe");
-  g.addColorStop(1, "#4facfe");
-
-  ctx.fillStyle = g;
-  ctx.fillRect(x, y, (value / 100) * width, height);
-}
-
-/* ===============================
-   COMMAND
+   COMMANDS
 ================================ */
 
 bot.onText(/\/start/, (msg) => {
   bot.sendMessage(
     msg.chat.id,
-    "🔥 SOLMATRIX ELITE AI\n\nKetik:\n/scan PAIR_ADDRESS\n\nContoh:\n/scan 7Qv..."
+`🔥 SOLMATRIX ELITE AI
+
+Ketik:
+/scan PAIR_ADDRESS
+
+Contoh:
+/scan 7Qv...`
   );
 });
 
@@ -137,14 +74,24 @@ bot.onText(/\/scan (.+)/, async (msg, match) => {
   }
 
   const ai = calculateAI(data);
-  const image = generateCanvas(
-    data.baseToken.name,
-    data.baseToken.symbol,
-    ai,
-    data.priceUsd
-  );
 
-  bot.sendPhoto(chatId, image);
+  const result =
+`🔥 ${data.baseToken.name} (${data.baseToken.symbol})
+
+💰 Price: $${data.priceUsd}
+📊 24H Change: ${data.priceChange.h24}%
+
+💧 Liquidity: $${data.liquidity.usd}
+📈 Volume 24H: $${data.volume.h24}
+
+📊 Status: ${ai.status}
+⚠ Risk Score: ${ai.risk}/100
+🚀 Momentum: ${ai.momentum}/100
+🤖 AI Confidence: ${ai.confidence}%
+
+⚠ Bukan jaminan profit. DYOR.`;
+
+  bot.sendMessage(chatId, result);
 });
 
-console.log("🚀 SolMatrix Railway Version Running...");
+console.log("🚀 SolMatrix Railway No-Canvas Version Running...");
