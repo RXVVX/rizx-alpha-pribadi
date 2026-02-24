@@ -1,48 +1,58 @@
-# main.py
 import os
 import requests
 import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
+# ===== ENVIRONMENT VARIABLES =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 BIRDEYE_API = os.getenv("BIRDEYE_API")
 TELEGRAM_CHAT_ID = int(os.getenv("CHAT_ID"))
 RPC_URL = "https://api.mainnet-beta.solana.com"
 
-def get_token_data(token_address: str) -> dict:
-    headers = {"X-API-KEY": BIRDEYE_API}
-    url = f"https://public-api.birdeye.so/public/token_overview?address={token_address}"
-    response = requests.get(url, headers=headers, timeout=10)
-    return response.json()
+# ===== Fungsi Ambil Data Token (Async-safe) =====
+async def get_token_data(token_address: str) -> dict:
+    def sync_request():
+        headers = {"X-API-KEY": BIRDEYE_API}
+        url = f"https://public-api.birdeye.so/public/token_overview?address={token_address}"
+        response = requests.get(url, headers=headers, timeout=10)
+        return response.json()
+    return await asyncio.to_thread(sync_request)
 
-def check_authority(token_address: str) -> str:
-    payload = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "getAccountInfo",
-        "params": [token_address, {"encoding": "jsonParsed"}]
-    }
-    response = requests.post(RPC_URL, json=payload, timeout=10)
-    info = response.json()["result"]["value"]["data"]["parsed"]["info"]
-    mint = info.get("mintAuthority")
-    freeze = info.get("freezeAuthority")
-    if mint:
-        return "🚨 Dev masih bisa CETAK token"
-    if freeze:
-        return "⚠ Token bisa dibekukan"
-    return "🟢 Supply Aman (Authority dimatikan)"
+# ===== Fungsi Cek Authority (Async-safe) =====
+async def check_authority(token_address: str) -> str:
+    def sync_request():
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getAccountInfo",
+            "params": [token_address, {"encoding": "jsonParsed"}]
+        }
+        response = requests.post(RPC_URL, json=payload, timeout=10)
+        info = response.json()["result"]["value"]["data"]["parsed"]["info"]
+        mint = info.get("mintAuthority")
+        freeze = info.get("freezeAuthority")
+        if mint: return "🚨 Dev masih bisa CETAK token"
+        if freeze: return "⚠ Token bisa dibekukan"
+        return "🟢 Supply Aman (Authority dimatikan)"
+    return await asyncio.to_thread(sync_request)
 
-def analyze_token(token_address: str) -> str:
-    data = get_token_data(token_address)
-    name = data["data"]["name"]
-    liquidity = float(data["data"]["liquidity"])
-    holders = int(data["data"]["holder"])
-    volume = float(data["data"]["v24hUSD"])
-    top_holders = data.get("data", {}).get("top10holders", [])
+# ===== Fungsi Analisis Token =====
+async def analyze_token(token_address: str) -> str:
+    data = await get_token_data(token_address)
 
-    authority = check_authority(token_address)
-    whale_alert = "🐳 Whale aktif" if volume > 200000 else ""
+    try:
+        name = data["data"]["name"]
+        liquidity = float(data["data"]["liquidity"])
+        holders = int(data["data"]["holder"])
+        volume = float(data["data"]["v24hUSD"])
+        top_holders = data.get("data", {}).get("top10holders", [])
+    except KeyError:
+        return f"❌ Token {token_address} tidak ditemukan di Birdeye API"
+
+    authority = await check_authority(token_address)
+
+    whale_alert = "🐳 Whale aktif terdeteksi" if volume > 200000 else ""
     bundle_alert = "🐾 Bundle wallet terdeteksi" if len(top_holders) > 1 and top_holders[0]["percent"] > 20 and top_holders[1]["percent"] > 10 else ""
 
     pump_probability = min(int(liquidity/1000 + holders/50 + volume/50000), 100)
@@ -65,10 +75,12 @@ def analyze_token(token_address: str) -> str:
     )
     return msg
 
+# ===== Kirim Alert =====
 async def send_alert(token_address: str, chat_id: int, context: ContextTypes.DEFAULT_TYPE):
-    msg = analyze_token(token_address)
+    msg = await analyze_token(token_address)
     await context.bot.send_message(chat_id=chat_id, text=msg)
 
+# ===== Handler Pesan Telegram =====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     text = update.message.text.strip()
@@ -77,6 +89,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ Format token tidak valid. Kirim contract address Solana yang benar.")
 
+# ===== Start Bot =====
 def start_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
