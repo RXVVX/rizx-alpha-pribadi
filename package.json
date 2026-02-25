@@ -1,0 +1,13 @@
+{
+  "name": "duel-rxvvx",
+  "version": "2.0.0",
+  "description": "DUEL RXVVX Telegram Bot",
+  "main": "bot.js",
+  "scripts": {
+    "start": "bash start.sh"
+  },
+  "dependencies": {
+    "node-telegram-bot-api": "^0.64.0",
+    "fs-extra": "^11.2.0"
+  }
+}
