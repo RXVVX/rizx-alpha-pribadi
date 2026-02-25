@@ -1,7 +1,6 @@
 import requests
 import time
 import os
-from datetime import datetime
 
 # =========================
 # CONFIG
@@ -9,10 +8,10 @@ from datetime import datetime
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-DEX_API = "https://api.dexscreener.com/latest/dex/pairs"
+DEX_API = "https://api.dexscreener.com/latest/dex/search?q=usdt"
 GOPLUS_API = "https://api.gopluslabs.io/api/v1/token_security"
 
-SCAN_INTERVAL = 30
+SCAN_INTERVAL = 45
 MIN_LIQUIDITY = 10000
 MAX_MARKETCAP = 5000000
 
@@ -24,10 +23,13 @@ volume_history = {}
 # =========================
 def send_telegram(msg):
     if not TELEGRAM_TOKEN or not CHAT_ID:
-        print("Telegram not configured")
+        print("[WARN] Telegram not configured")
         return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        requests.post(url, data={"chat_id": CHAT_ID, "text": msg}, timeout=10)
+    except Exception as e:
+        print("[ERROR] Telegram:", e)
 
 # =========================
 # GOPLUS SECURITY CHECK
@@ -35,22 +37,22 @@ def send_telegram(msg):
 def check_security(chain, token):
     try:
         url = f"{GOPLUS_API}/{chain}?contract_addresses={token}"
-        res = requests.get(url).json()
-        data = res["result"][token]
+        res = requests.get(url, timeout=10).json()
+        data = res.get("result", {}).get(token, {})
 
         honeypot = data.get("is_honeypot") == "1"
         mintable = data.get("is_mintable") == "1"
-        blacklist_fn = data.get("is_blacklisted") == "1"
         owner_percent = float(data.get("owner_percent", 0))
 
-        scam = honeypot or mintable or blacklist_fn or owner_percent > 20
-
+        scam = honeypot or mintable or owner_percent > 20
         return scam, owner_percent
-    except:
+
+    except Exception as e:
+        print("[WARN] GoPlus error:", e)
         return True, 100
 
 # =========================
-# RUGPULL DETECTION
+# DETEKSI RUGPULL
 # =========================
 def rugpull_risk(liquidity, fdv):
     if liquidity < 5000:
@@ -60,14 +62,14 @@ def rugpull_risk(liquidity, fdv):
     return False
 
 # =========================
-# AGE CHECK
+# DETEKSI COIN BARU
 # =========================
 def is_new_pair(created_at):
     age_minutes = (time.time() - created_at / 1000) / 60
     return age_minutes < 60, age_minutes
 
 # =========================
-# VOLUME DROP DETECTION
+# DETEKSI VOLUME TURUN
 # =========================
 def volume_drop(token, volume):
     if token in volume_history:
@@ -77,17 +79,23 @@ def volume_drop(token, volume):
     return False
 
 # =========================
-# MAIN SCANNER
+# SCAN MARKET
 # =========================
 def scan_pairs():
-    print("Scanning market...")
+    print("\n[SCAN] Scanning market...")
+
     try:
-        data = requests.get(DEX_API).json()["pairs"]
-    except:
-        print("Dexscreener error")
+        res = requests.get(DEX_API, timeout=15)
+        data = res.json().get("pairs", [])
+    except Exception as e:
+        print("[ERROR] Dexscreener:", e)
         return
 
-    for pair in data[:50]:
+    if not data:
+        print("[WARN] No data received")
+        return
+
+    for pair in data[:30]:  # batasi agar ringan
         try:
             name = pair["baseToken"]["name"]
             symbol = pair["baseToken"]["symbol"]
@@ -110,6 +118,7 @@ def scan_pairs():
             if scam:
                 blacklist.add(token)
                 send_telegram(f"❌ SCAM DETECTED\n{name} ({symbol})")
+                print(f"[SCAM] {symbol}")
                 continue
 
             rugpull = rugpull_risk(liquidity, fdv)
@@ -123,7 +132,9 @@ def scan_pairs():
             if owner_percent > 10:
                 safety_score -= 20
 
-            # ===== ALERTS =====
+            print(f"[OK] {symbol} | Safety {safety_score}")
+
+            # ===== ALERT =====
             if early_gem:
                 send_telegram(
                     f"🚀 EARLY GEM\n"
@@ -140,16 +151,16 @@ def scan_pairs():
             if vol_drop:
                 send_telegram(f"⚠️ VOLUME DROP\n{name} ({symbol})")
 
-            print(f"Checked {symbol} | Safety {safety_score}")
-
         except Exception as e:
-            print("Error:", e)
+            print("[PAIR ERROR]", e)
 
 # =========================
 # MAIN LOOP
 # =========================
 def main():
-    send_telegram("🤖 Bot Memecoin Scanner Started")
+    print("[START] Bot Memecoin Scanner Running")
+    send_telegram("🤖 Bot Scanner Started")
+
     while True:
         scan_pairs()
         time.sleep(SCAN_INTERVAL)
