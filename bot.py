@@ -1,208 +1,184 @@
 import discord
 from discord.ext import commands
-import random
-import json
 import os
-import sys
+import json
+import random
 
 # ================= CONFIG =================
 TOKEN = os.getenv("TOKEN")
 
 if not TOKEN:
-    print("ERROR: TOKEN tidak ditemukan di Environment Variables!")
-    sys.exit(1)
+    print("❌ TOKEN TIDAK TERBACA!")
+    exit()
 
-ADMIN_IDS = [1478560895058579476]  # GANTI DENGAN ID ADMIN KAMU
+ADMIN_IDS = [1478560895058579476]  # GANTI DENGAN ID DISCORD KAMU
 ADMIN_FEE_PERCENT = 5
 DEPOSIT_NUMBER = "6283173495612"
 
+DATA_FILE = "database.json"
+
+# ================= SETUP =================
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix=".", intents=intents)
 
-DATA_FILE = "database.json"
-
 # ================= DATABASE =================
 def load_data():
     if not os.path.exists(DATA_FILE):
-        return {}
+        with open(DATA_FILE, "w") as f:
+            json.dump({}, f)
     with open(DATA_FILE, "r") as f:
         return json.load(f)
 
-def save_data():
+def save_data(data):
     with open(DATA_FILE, "w") as f:
-        json.dump(data, f)
-
-data = load_data()
-matches = {}
-
-def ensure(uid):
-    if uid not in data:
-        data[uid] = {"balance": 0, "win": 0, "lose": 0}
+        json.dump(data, f, indent=4)
 
 def parse_amount(amount):
     amount = amount.lower()
-    if amount.endswith("k"):
-        return int(float(amount[:-1]) * 1000)
-    if amount.endswith("m"):
-        return int(float(amount[:-1]) * 1000000)
+    if "k" in amount:
+        return int(float(amount.replace("k","")) * 1000)
+    if "m" in amount:
+        return int(float(amount.replace("m","")) * 1000000)
     return int(amount)
 
-def winrate(uid):
-    w = data[uid]["win"]
-    l = data[uid]["lose"]
-    total = w + l
-    if total == 0:
-        return 0
-    return round((w / total) * 100, 2)
+# ================= READY =================
+@bot.event
+async def on_ready():
+    print(f"✅ Bot aktif sebagai {bot.user}")
 
-# ================= MATCH SYSTEM =================
-async def match_system(ctx, bet, game, roll_func, rounds):
+# ================= REGISTER =================
+@bot.command()
+async def register(ctx):
+    data = load_data()
     uid = str(ctx.author.id)
-    ensure(uid)
 
-    bet = parse_amount(bet)
-    rounds = max(1, min(10, rounds))
-    total_bet = bet * rounds
+    if uid in data:
+        await ctx.send("❌ Kamu sudah terdaftar.")
+        return
 
-    if data[uid]["balance"] < total_bet:
+    data[uid] = {
+        "balance": 0,
+        "win": 0,
+        "lose": 0
+    }
+    save_data(data)
+    await ctx.send("✅ Registrasi berhasil! Saldo awal: 0 coin")
+
+# ================= BALANCE =================
+@bot.command()
+async def balance(ctx):
+    data = load_data()
+    uid = str(ctx.author.id)
+
+    if uid not in data:
+        await ctx.send("❌ Kamu belum register.")
+        return
+
+    bal = data[uid]["balance"]
+    await ctx.send(f"💰 Saldo kamu: {bal} coin")
+
+# ================= ADMIN ADD COIN =================
+@bot.command()
+async def addcoin(ctx, member: discord.Member, amount):
+    if ctx.author.id not in ADMIN_IDS:
+        return
+
+    data = load_data()
+    uid = str(member.id)
+
+    if uid not in data:
+        await ctx.send("User belum register.")
+        return
+
+    amount = parse_amount(amount)
+    data[uid]["balance"] += amount
+    save_data(data)
+
+    await ctx.send(f"✅ {amount} coin ditambahkan ke {member.name}")
+
+# ================= ADMIN DELETE COIN =================
+@bot.command()
+async def deletecoin(ctx, member: discord.Member, amount):
+    if ctx.author.id not in ADMIN_IDS:
+        return
+
+    data = load_data()
+    uid = str(member.id)
+
+    if uid not in data:
+        return
+
+    amount = parse_amount(amount)
+    data[uid]["balance"] -= amount
+    if data[uid]["balance"] < 0:
+        data[uid]["balance"] = 0
+
+    save_data(data)
+    await ctx.send(f"🗑 Coin {member.name} dikurangi {amount}")
+
+# ================= DICE GAME =================
+@bot.command()
+async def dice(ctx, amount):
+    data = load_data()
+    uid = str(ctx.author.id)
+
+    if uid not in data:
+        await ctx.send("Register dulu.")
+        return
+
+    amount = parse_amount(amount)
+
+    if data[uid]["balance"] < amount:
         await ctx.send("Saldo tidak cukup.")
         return
 
-    if game not in matches:
-        matches[game] = None
+    player_roll = random.randint(1,6)
+    bot_roll = random.randint(1,6)
 
-    if matches[game] is None:
-        matches[game] = (uid, bet, rounds)
-        await ctx.send(f"Menunggu lawan | {game.upper()} | Bet {bet} | Round {rounds}")
-        return
-
-    uid2, bet2, rounds2 = matches[game]
-
-    if bet != bet2 or rounds != rounds2:
-        await ctx.send("Bet & round harus sama.")
-        return
-
-    matches[game] = None
-    ensure(uid2)
-
-    if data[uid2]["balance"] < total_bet:
-        await ctx.send("Lawan tidak cukup saldo.")
-        return
-
-    # Potong saldo awal
-    data[uid]["balance"] -= total_bet
-    data[uid2]["balance"] -= total_bet
-
-    score1 = 0
-    score2 = 0
-
-    for _ in range(rounds):
-        r1 = roll_func()
-        r2 = roll_func()
-        if r1 > r2:
-            score1 += 1
-        elif r2 > r1:
-            score2 += 1
-
-    if score1 > score2:
-        winner = uid
-        loser = uid2
+    if player_roll > bot_roll:
+        win = int(amount * (100-ADMIN_FEE_PERCENT)/100)
+        data[uid]["balance"] += win
+        data[uid]["win"] += 1
+        result = f"🎉 MENANG +{win}"
+    elif player_roll < bot_roll:
+        data[uid]["balance"] -= amount
+        data[uid]["lose"] += 1
+        result = f"💀 KALAH -{amount}"
     else:
-        winner = uid2
-        loser = uid
+        result = "🤝 SERI"
 
-    pot = total_bet * 2
-    fee = int(pot * ADMIN_FEE_PERCENT / 100)
-    win_amount = pot - fee
+    save_data(data)
 
-    data[winner]["balance"] += win_amount
-    data[winner]["win"] += 1
-    data[loser]["lose"] += 1
+    embed = discord.Embed(title="🎲 DICE GAME")
+    embed.add_field(name="Roll Kamu", value=player_roll)
+    embed.add_field(name="Roll Lawan", value=bot_roll)
+    embed.add_field(name="Hasil", value=result)
+    await ctx.send(embed=embed)
 
-    save_data()
-
-    await ctx.send(
-        f"{game.upper()} RESULT\n"
-        f"Score {score1} vs {score2}\n"
-        f"Winner: <@{winner}>\n"
-        f"Menang: {win_amount}\n"
-        f"Fee Admin: {fee}"
-    )
-
-# ================= EVENTS =================
-@bot.event
-async def on_ready():
-    print("GameSpin Online!")
-
-# ================= USER =================
-@bot.command()
-async def register(ctx):
-    uid = str(ctx.author.id)
-    if uid in data:
-        await ctx.send("Sudah terdaftar.")
-        return
-    ensure(uid)
-    save_data()
-    await ctx.send("Registrasi berhasil. Saldo 0.")
-
-@bot.command()
-async def balance(ctx):
-    uid = str(ctx.author.id)
-    ensure(uid)
-    await ctx.send(
-        f"Saldo: {data[uid]['balance']}\n"
-        f"Win: {data[uid]['win']} | Lose: {data[uid]['lose']}\n"
-        f"Winrate: {winrate(uid)}%"
-    )
-
-@bot.command()
-async def deposit(ctx, jumlah):
-    await ctx.send(f"Transfer ke {DEPOSIT_NUMBER} (GOPAY/OVO/DANA)\nKirim bukti ke admin.")
-
-# ================= GAME =================
-@bot.command()
-async def dice(ctx, jumlah, rounds: int = 1):
-    await match_system(ctx, jumlah, "dice", lambda: random.randint(1,6), rounds)
-
-@bot.command()
-async def reme(ctx, jumlah, rounds: int = 1):
-    await match_system(ctx, jumlah, "reme", lambda: random.randint(1,13), rounds)
-
-@bot.command()
-async def qeme(ctx, jumlah, rounds: int = 1):
-    await match_system(ctx, jumlah, "qeme", lambda: random.randint(1,12), rounds)
-
-@bot.command()
-async def csn(ctx, jumlah, rounds: int = 1):
-    await match_system(ctx, jumlah, "csn", lambda: random.randint(1,100), rounds)
-
+# ================= SPIN =================
 @bot.command()
 async def spin(ctx):
     number = random.randint(1,100)
-    await ctx.send(f"SPIN RESULT: {number}")
+    await ctx.send(f"🎰 Angka keluar: {number}")
 
-# ================= ADMIN =================
+# ================= HELP =================
 @bot.command()
-async def addcoin(ctx, member: discord.Member, jumlah):
-    if ctx.author.id not in ADMIN_IDS:
-        return
-    uid = str(member.id)
-    ensure(uid)
-    jumlah = parse_amount(jumlah)
-    data[uid]["balance"] += jumlah
-    save_data()
-    await ctx.send("Coin ditambahkan.")
+async def help(ctx):
+    await ctx.send("""
+☘️ GameSpin BOT ☘️
 
-@bot.command()
-async def deletecoin(ctx, member: discord.Member, jumlah):
-    if ctx.author.id not in ADMIN_IDS:
-        return
-    uid = str(member.id)
-    ensure(uid)
-    jumlah = parse_amount(jumlah)
-    data[uid]["balance"] = max(0, data[uid]["balance"] - jumlah)
-    save_data()
-    await ctx.send("Coin dikurangi.")
+.register
+.balance
+.dice <jumlah>
+.spin
 
+Admin:
+.addcoin @user <jumlah>
+.deletecoin @user <jumlah>
+
+Deposit: 6283173495612
+""")
+
+# ================= RUN =================
 bot.run(TOKEN)
