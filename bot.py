@@ -4,7 +4,7 @@ import random
 import json
 import os
 
-TOKEN = os.getenv("5bd8e28caee03925810c87fc635a9ef3263606302d1ce87ed13b97ecb7d173c5")
+TOKEN = os.getenv("TOKEN")
 ADMIN_IDS = [1478560895058579476]  # GANTI ID ADMIN
 ADMIN_FEE_PERCENT = 5
 DEPOSIT_NUMBER = "6283173495612"
@@ -222,4 +222,4 @@ async def deletecoin(ctx, member: discord.Member, jumlah):
     save_data()
     await ctx.send("Coin dikurangi.")
 
-bot.run(5bd8e28caee03925810c87fc635a9ef3263606302d1ce87ed13b97ecb7d173c5)
+bot.run(TOKEN)
