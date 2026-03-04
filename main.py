@@ -6,8 +6,8 @@ import random
 
 # --- KONFIGURASI ---
 TOKEN = os.getenv('TOKEN')
-ADMIN_ID = 1478560895058579476  # GANTI DENGAN ID DISCORD KAMU (Angka)
-NOMOR_DEPO = "6283173495612"
+ADMIN_ID = 1478560895058579476  # GANTI DENGAN ID DISCORD KAMU
+NOMOR_DEPO = "6283173495612"   # Sesuai screenshot
 BOT_NAME = "DUEL RXV X TEAMRXVVX"
 FEE_PERCENTAGE = 0.05
 
@@ -28,14 +28,14 @@ db = load_db()
 
 # --- BOT SETUP ---
 intents = discord.Intents.default()
-intents.message_content = True  # Penting untuk Railway agar bisa baca pesan
+intents.message_content = True  # Memperbaiki error "intent tidak diizinkan"
 bot = commands.Bot(command_prefix='.', intents=intents, help_command=None)
 
 active_duels = {}
 
 @bot.event
 async def on_ready():
-    print(f'✅ {BOT_NAME} (Python) Online!')
+    print(f'✅ {BOT_NAME} Online dan Lancar!')
 
 def get_user(user_id):
     uid = str(user_id)
@@ -43,7 +43,7 @@ def get_user(user_id):
         db["users"][uid] = {"coin": 0}
     return db["users"][uid]
 
-# ================= [ MENU UTAMA (PERSIS FOTO) ] =================
+# ================= [ MENU UTAMA ] =================
 @bot.command()
 async def menu(ctx):
     embed = discord.Embed(title=f"✨ {BOT_NAME} ✨", color=0x2b2d31)
@@ -60,51 +60,46 @@ async def menu(ctx):
     embed.set_footer(text=f"Deposit ke: {NOMOR_DEPO}")
     await ctx.send(embed=embed)
 
-# ================= [ EKONOMI & ADMIN ] =================
+# ================= [ ECONOMY & LEADERBOARD ] =================
 @bot.command()
 async def cc(ctx):
     user = get_user(ctx.author.id)
-    await ctx.send(f"🪙 Saldo: **{user['coin']:,}** koin.")
+    await ctx.send(f"🪙 **Saldo:** {user['coin']:,} koin.")
 
 @bot.command()
-async def depo(ctx):
-    await ctx.send(f"💳 **DEPOSIT**\nNomor: **{NOMOR_DEPO}** (DANA/GOPAY/OVO)\nKirim bukti ke Admin!")
+async def leaderboard(ctx):
+    users_data = []
+    for uid, data in db["users"].items():
+        try:
+            user_obj = await bot.fetch_user(int(uid))
+            users_data.append({"name": user_obj.name, "coin": data["coin"]})
+        except: continue
+    
+    sorted_users = sorted(users_data, key=lambda x: x['coin'], reverse=True)
+    ranks = "\n".join([f"{i+1}. **{u['name']}** — {u['coin']:,} koin" for i, u in enumerate(sorted_users[:10])])
+    
+    embed = discord.Embed(title="🏆 TOP RANKING", description=ranks or "Belum ada data.", color=0xf1c40f)
+    await ctx.send(embed=embed)
 
-@bot.command()
-async def addcoin(ctx, target: discord.Member, amount: int):
-    if ctx.author.id != ADMIN_ID:
-        return
-    t_user = get_user(target.id)
-    t_user["coin"] += amount
-    save_db(db)
-    await ctx.send(f"✅ Berhasil isi **{amount}** koin ke {target.name}.")
-
-# ================= [ PVP SYSTEM + FEE 5% ] =================
+# ================= [ PVP SYSTEM ] =================
 pvp_list = ['reme', 'qeme', 'qq', 'csn', 'btk', 'dirt', 'bc', 'bj', 'kb', 'dadu', 'card', 'flip']
 
 @bot.event
 async def on_message(message):
     if message.author.bot: return
-    
     content = message.content.lower()
+    
     for g in pvp_list:
         if content.startswith(f".{g}"):
             args = content.split()
-            if len(args) < 3:
-                return await message.channel.send(f"Format: `.{g} @lawan [bet]`")
+            if len(args) < 3: return await message.channel.send(f"Format: `.{g} @lawan [bet]`")
             
-            try:
-                target_id = int(args[1].replace("<@!", "").replace("<@", "").replace(">", ""))
-                bet = int(args[2])
-            except:
-                return await message.channel.send("Format salah!")
-
-            user = get_user(message.author.id)
-            if user["coin"] < bet:
-                return await message.channel.send("❌ Koin kamu tidak cukup!")
+            target_id = int(args[1].replace("<@!", "").replace("<@", "").replace(">", ""))
+            bet = int(args[2])
+            if get_user(message.author.id)["coin"] < bet: return await message.channel.send("❌ Koin tidak cukup!")
 
             active_duels[str(target_id)] = {"challenger": message.author.id, "bet": bet, "game": g.upper()}
-            await message.channel.send(f"⚔️ **TANTANGAN {g.upper()}**\n<@{message.author.id}> vs <@{target_id}> | Bet: **{bet}**\nKetik **.acc** untuk menerima!")
+            await message.channel.send(f"⚔️ **DUEL {g.upper()}**\n<@{message.author.id}> vs <@{target_id}> | Bet: {bet}\nKetik **.acc** untuk main!")
             break
     await bot.process_commands(message)
 
@@ -114,38 +109,31 @@ async def acc(ctx):
     if uid not in active_duels: return
     
     duel = active_duels[uid]
-    if get_user(ctx.author.id)["coin"] < duel["bet"]:
-        return await ctx.send("❌ Koin kamu kurang!")
-
     p1, p2 = random.randint(1, 10), random.randint(1, 10)
-    if p1 > p2:
-        win_id, lose_id = duel["challenger"], ctx.author.id
-    elif p2 > p1:
-        win_id, lose_id = ctx.author.id, duel["challenger"]
+    winner_id = duel["challenger"] if p1 > p2 else ctx.author.id if p2 > p1 else None
+    
+    if not winner_id:
+        await ctx.send("🤝 **SERI!**")
     else:
-        del active_duels[uid]
-        return await ctx.send("🤝 **SERI!**")
-
-    fee = int(duel["bet"] * FEE_PERCENTAGE)
-    net = duel["bet"] - fee
-    db["users"][str(win_id)]["coin"] += net
-    db["users"][str(lose_id)]["coin"] -= duel["bet"]
-    db["vault"]["total_fee"] += fee
-    save_db(db)
+        fee = int(duel["bet"] * FEE_PERCENTAGE)
+        db["users"][str(winner_id)]["coin"] += (duel["bet"] - fee)
+        db["users"][str(duel["challenger"] if winner_id != duel["challenger"] else ctx.author.id)]["coin"] -= duel["bet"]
+        save_db(db)
+        await ctx.send(f"🏆 <@{winner_id}> MENANG! Hadiah bersih: {duel['bet'] - fee}")
     del active_duels[uid]
-    await ctx.send(f"🏆 <@{win_id}> MENANG! Hadiah: **{net}** (Fee 5%: {fee})")
 
 # ================= [ PVH SYSTEM ] =================
 @bot.command()
 async def leme(ctx, bet: int):
     user = get_user(ctx.author.id)
-    if user["coin"] < bet: return
-    if random.random() > 0.65:
+    if user["coin"] < bet: return await ctx.send("❌ Saldo kurang!")
+    
+    if random.random() > 0.6:
         user["coin"] += bet
-        await ctx.send(f"🎯 **WIN!** +{bet}")
+        await ctx.send(f"🎯 **WIN!** +{bet} koin.")
     else:
         user["coin"] -= bet
-        await ctx.send(f"💥 **LOSE!** -{bet}")
+        await ctx.send(f"💥 **LOSE!** -{bet} koin.")
     save_db(db)
 
 bot.run(TOKEN)
