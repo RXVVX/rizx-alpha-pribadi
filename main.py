@@ -6,7 +6,7 @@ import random
 
 # --- KONFIGURASI ADMIN ---
 # Pastikan hanya angka ID saja di dalam list ini agar tidak Error
-ADMIN_IDS = [1478560895058579476, 3171531701500346673] 
+ADMIN_IDS = [1478560895058579476, 1219801489854435370] 
 
 TOKEN = os.getenv('TOKEN')
 NOMOR_DEPO = "6283173495612"
