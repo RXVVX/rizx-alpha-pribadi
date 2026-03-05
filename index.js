@@ -1,4 +1,4 @@
-// DUEL RXV TEAMRXVVX - BOT TARUHAN SUNGGUHAN
+// DUEL RXV TEAMRXVVX - BOT LENGKAP DENGAN SEMUA FITUR + REDEEM
 // Simpan sebagai index.js
 
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
@@ -20,8 +20,8 @@ const config = {
         gopay: "6283173495612"
     },
     
-    startingCoins: 0, // Tidak ada gratis coin
-    gameExpireTime: 120000, // 2 menit
+    startingCoins: 0,
+    gameExpireTime: 120000,
     
     fee: {
         enabled: true,
@@ -31,15 +31,23 @@ const config = {
     }
 };
 
-// ==================== DATABASE ====================
-let db = { users: {}, games: [], feeWallet: 0, feeHistory: [] };
+// ==================== DATABASE LENGKAP ====================
+let db = { 
+    users: {}, 
+    games: [],
+    feeWallet: 0,
+    feeHistory: [],
+    giftCodes: []  // Array untuk menyimpan gift code
+};
 
+// Load database
 try {
     if (fs.existsSync('./database.json')) {
         db = JSON.parse(fs.readFileSync('./database.json'));
         console.log('✅ Database loaded');
     } else {
         fs.writeFileSync('./database.json', JSON.stringify(db, null, 2));
+        console.log('✅ Database created');
     }
 } catch (err) {
     console.log('Database error:', err);
@@ -84,6 +92,41 @@ function applyFee(amount, userId, username, gameType) {
     return fee;
 }
 
+// ==================== FUNGSI GIFT CODE ====================
+function generateGiftCode(length = 8) {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ123456789';
+    let code = '';
+    for (let i = 0; i < length; i++) {
+        code += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return code;
+}
+
+function createGiftCode(amount, createdBy, username, customCode = null, expiresInDays = 30) {
+    const code = customCode ? customCode.toUpperCase() : generateGiftCode();
+    
+    if (db.giftCodes.some(g => g.code === code)) {
+        return null;
+    }
+    
+    const gift = {
+        code: code,
+        coins: amount,
+        used: false,
+        createdBy: createdBy,
+        createdByUsername: username,
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString(),
+        usedBy: null,
+        usedByUsername: null,
+        usedAt: null
+    };
+    
+    db.giftCodes.push(gift);
+    saveDB();
+    return gift;
+}
+
 // ==================== CLIENT ====================
 const client = new Client({
     intents: [
@@ -109,7 +152,7 @@ function rollDice(sides = 6) {
     return Math.floor(Math.random() * sides) + 1;
 }
 
-// ==================== GAME LOGIC YANG LEBIH SUSAH ====================
+// ==================== GAME LOGIC ====================
 
 // 1. REME (adu angka 1-1000)
 function playReme(rounds) {
@@ -124,7 +167,7 @@ function playReme(rounds) {
     return { playerWins, opponentWins, results };
 }
 
-// 2. QEME (tebak angka 1-50, selisih terkecil menang)
+// 2. QEME (tebak angka 1-50)
 function playQeme(rounds) {
     let playerWins = 0, opponentWins = 0, results = [];
     for (let r = 1; r <= rounds; r++) {
@@ -140,7 +183,7 @@ function playQeme(rounds) {
     return { playerWins, opponentWins, results };
 }
 
-// 3. QQ (kartu 1-13, nilai tertinggi menang)
+// 3. QQ (kartu 1-13)
 function playQQ(rounds) {
     let playerWins = 0, opponentWins = 0, results = [];
     for (let r = 1; r <= rounds; r++) {
@@ -153,7 +196,7 @@ function playQQ(rounds) {
     return { playerWins, opponentWins, results };
 }
 
-// 4. CSN (casino - random 1-100)
+// 4. CSN (casino random)
 function playCSN(rounds) {
     let playerWins = 0, opponentWins = 0, results = [];
     for (let r = 1; r <= rounds; r++) {
@@ -166,7 +209,7 @@ function playCSN(rounds) {
     return { playerWins, opponentWins, results };
 }
 
-// 5. BTK (battle - damage 1-50)
+// 5. BTK (battle)
 function playBTK(rounds) {
     let playerWins = 0, opponentWins = 0, results = [];
     for (let r = 1; r <= rounds; r++) {
@@ -179,7 +222,7 @@ function playBTK(rounds) {
     return { playerWins, opponentWins, results };
 }
 
-// 6. DIRT (dirt seed - random 1-100)
+// 6. DIRT
 function playDirt(rounds) {
     let playerWins = 0, opponentWins = 0, results = [];
     for (let r = 1; r <= rounds; r++) {
@@ -192,7 +235,7 @@ function playDirt(rounds) {
     return { playerWins, opponentWins, results };
 }
 
-// 7. BC (baccarat sederhana - nilai 0-9)
+// 7. BC (baccarat)
 function playBC(rounds) {
     let playerWins = 0, opponentWins = 0, results = [];
     for (let r = 1; r <= rounds; r++) {
@@ -205,7 +248,7 @@ function playBC(rounds) {
     return { playerWins, opponentWins, results };
 }
 
-// 8. BJ (blackjack sederhana - 1-21, mendekati 21 menang)
+// 8. BJ (blackjack)
 function playBJ(rounds) {
     let playerWins = 0, opponentWins = 0, results = [];
     for (let r = 1; r <= rounds; r++) {
@@ -221,14 +264,14 @@ function playBJ(rounds) {
     return { playerWins, opponentWins, results };
 }
 
-// 9. KB (kecil/besar dengan 2 dadu)
+// 9. KB (kecil/besar 2 dadu)
 function playKB(rounds, hostChoice) {
     let playerWins = 0, opponentWins = 0, results = [];
     for (let r = 1; r <= rounds; r++) {
         const dice1 = rollDice();
         const dice2 = rollDice();
         const total = dice1 + dice2;
-        const hasil = total <= 6 ? 'KECIL' : 'BESAR'; // 2-6 kecil, 7-12 besar
+        const hasil = total <= 6 ? 'KECIL' : 'BESAR';
         const joinerChoice = hostChoice === 'KECIL' ? 'BESAR' : 'KECIL';
         if (hostChoice === hasil) playerWins++;
         else if (joinerChoice === hasil) opponentWins++;
@@ -293,6 +336,7 @@ client.once('ready', () => {
     console.log(`✅ ${config.botName} ONLINE!`);
     console.log(`📱 Deposit: ${config.deposit.dana}`);
     console.log(`💰 Fee: ${config.fee.percentage}%`);
+    console.log(`🎁 Gift codes: ${db.giftCodes.length} tersedia`);
     client.user.setActivity('.menu | Taruhan Sungguhan', { type: 'PLAYING' });
 
     setInterval(() => {
@@ -334,7 +378,7 @@ client.on('messageCreate', async (message) => {
                 .addFields(
                     { name: '📋 MENU', value: '`.menu` `.help` `.admin` `.tukar`' },
                     { name: '💰 EKONOMI', value: '`.depo` `.qris` `.tf @user` `.cc` `.lb`' },
-                    { name: '🎲 SPIN GRATIS', value: '`.spin` - Lempar 3 dadu gratis (no coin)' },
+                    { name: '🎲 SPIN GRATIS', value: '`.spin` - Lempar 3 dadu gratis' },
                     { name: '⚔️ PVP (5 RONDE)', value: '`.reme 100` `.qeme 100` `.qq 100` `.csn 100` `.btk 100` `.dirt 100` `.bc 100` `.bj 100` `.kb k 100` `.dadu 100` `.card 100` `.flip 100`' },
                     { name: '🤝 VS BOT', value: '`.hleme 100` `.leme ID` `.hreme 100` `.reme ID` `.hlewa 100` `.lewa ID` `.hr 100` `.rw ID`' },
                     { name: '🔍 ROOM', value: '`.rooms` `.cancel ID`' }
@@ -348,7 +392,8 @@ client.on('messageCreate', async (message) => {
             return message.reply(
                 '📚 **BANTUAN**\n\n' +
                 '**FEE:** 5% dari total pot (min 10, max 5000)\n' +
-                '**SPIN GRATIS:** `.spin` (tidak memakai coin)\n' +
+                '**SPIN GRATIS:** `.spin` (tidak pakai coin)\n' +
+                '**REDEEM GIFT:** `.tukar KODE`\n' +
                 '**PVP:** Host `.reme 500`, Join `.remej ID`\n' +
                 '**VS BOT:** Host `.hleme 500`, Join `.leme ID`\n' +
                 '**CEK ROOM:** `.rooms`\n' +
@@ -442,9 +487,58 @@ client.on('messageCreate', async (message) => {
             );
         }
 
-        // ==================== REDEEM GIFT ====================
-        if (cmd === 'tukar') {
-            return message.reply('🎁 **GIFT CODE**\nHubungi admin untuk mendapatkan kode gift.');
+        // ==================== REDEEM GIFT CODE ====================
+        if (cmd === 'tukar' || cmd === 'redeem' || cmd === 'claim') {
+            if (!args[0]) {
+                return message.reply(
+                    '❌ **Gunakan:** `.tukar KODE_GIFT`\n' +
+                    'Contoh: `.tukar HUTRI75`\n\n' +
+                    '💡 Minta kode gift ke admin!'
+                );
+            }
+            
+            const code = args[0].toUpperCase();
+            const now = new Date();
+            
+            const giftIndex = db.giftCodes.findIndex(g => g.code === code);
+            
+            if (giftIndex === -1) {
+                return message.reply('❌ Kode gift **tidak ditemukan**! Periksa kembali kode Anda.');
+            }
+            
+            const gift = db.giftCodes[giftIndex];
+            
+            if (gift.used) {
+                return message.reply('❌ Kode gift sudah **digunakan** oleh seseorang!');
+            }
+            
+            if (new Date(gift.expiresAt) < now) {
+                return message.reply('❌ Kode gift sudah **kedaluwarsa**!');
+            }
+            
+            user.coins += gift.coins;
+            
+            db.giftCodes[giftIndex].used = true;
+            db.giftCodes[giftIndex].usedBy = message.author.id;
+            db.giftCodes[giftIndex].usedByUsername = message.author.username;
+            db.giftCodes[giftIndex].usedAt = now.toISOString();
+            
+            saveDB();
+            
+            const embed = new EmbedBuilder()
+                .setColor('#00FF00')
+                .setTitle('🎁 REDEEM GIFT CODE BERHASIL!')
+                .setDescription(`Selamat ${message.author.username}!`)
+                .addFields(
+                    { name: 'Kode Gift', value: `\`${code}\``, inline: true },
+                    { name: 'Jumlah Coin', value: `+${formatNumber(gift.coins)} 🪙`, inline: true },
+                    { name: 'Total Coin', value: formatNumber(user.coins) + ' 🪙', inline: true },
+                    { name: 'Dibuat Oleh', value: gift.createdByUsername, inline: true },
+                    { name: 'Tanggal Redeem', value: new Date().toLocaleDateString(), inline: true }
+                )
+                .setFooter({ text: 'Terima kasih telah menggunakan gift code!' });
+            
+            return message.channel.send({ embeds: [embed] });
         }
 
         // ==================== CEK ROOM ====================
@@ -654,7 +748,7 @@ client.on('messageCreate', async (message) => {
             );
         }
 
-        // ==================== DAFTAR COMMAND ====================
+        // ==================== DAFTAR COMMAND PVP ====================
         const hostCommands = {
             reme: ['REME', 'remej', playReme],
             qeme: ['QEME', 'qemej', playQeme],
@@ -674,7 +768,7 @@ client.on('messageCreate', async (message) => {
             return handleHost(gameType, parseInt(args[0]), joinCmd, gameFunc);
         }
 
-        // KHUSUS KB
+        // ==================== KB KHUSUS ====================
         if (cmd === 'kb') {
             if (args.length < 2) return message.reply('❌ Gunakan: `.kb <k/b> jumlah`');
             const choice = args[0].toLowerCase();
@@ -704,7 +798,7 @@ client.on('messageCreate', async (message) => {
             );
         }
 
-        // JOIN COMMANDS
+        // ==================== JOIN COMMANDS ====================
         const joinCommands = {
             remej: ['REME', playReme],
             qemej: ['QEME', playQeme],
@@ -716,67 +810,66 @@ client.on('messageCreate', async (message) => {
             bjj: ['BJ', playBJ],
             daduj: ['DADU', playDadu],
             cardj: ['CARD', playCard],
-            flipj: ['FLIP', playFlip],
-            kbj: ['KB', playKB] // khusus kb perlu penanganan sendiri karena butuh hostChoice
+            flipj: ['FLIP', playFlip]
         };
 
         if (joinCommands[cmd]) {
             const [gameType, gameFunc] = joinCommands[cmd];
-            if (cmd === 'kbj') {
-                // handle kbj khusus
-                const gameId = args[0]?.toUpperCase();
-                const game = activeGames.get(gameId);
-                if (!game) return message.reply('❌ Game tidak ditemukan!');
-                if (game.type !== 'KB') return message.reply('❌ Ini bukan game KB!');
-                if (game.hostId === message.author.id) return message.reply('❌ Tidak bisa join game sendiri!');
-
-                const joiner = db.users[message.author.id];
-                if (joiner.coins < game.betAmount) {
-                    return message.reply(`❌ Coin tidak cukup! Kamu butuh ${formatNumber(game.betAmount)} coin.`);
-                }
-
-                joiner.coins -= game.betAmount;
-                const host = db.users[game.hostId];
-
-                const result = playKB(5, game.hostChoice);
-                let winner = null, winnerObj = null, winnerName = '';
-                if (result.playerWins > result.opponentWins) {
-                    winner = game.hostId; winnerName = game.hostName; winnerObj = host;
-                } else if (result.opponentWins > result.playerWins) {
-                    winner = message.author.id; winnerName = message.author.username; winnerObj = joiner;
-                }
-
-                const totalPot = game.betAmount * 2;
-                const fee = calculateFee(totalPot);
-
-                if (winner) {
-                    winnerObj.coins += totalPot - fee;
-                    winnerObj.gamesWon++;
-                    applyFee(totalPot, winner, winnerName, 'KB');
-                } else {
-                    host.coins += game.betAmount;
-                    joiner.coins += game.betAmount;
-                }
-
-                host.gamesPlayed++; joiner.gamesPlayed++;
-                host.gamesVsPlayer++; joiner.gamesVsPlayer++;
-                saveDB();
-                activeGames.delete(gameId);
-
-                const resultsText = result.results.join('\n');
-                let reply = `🎮 **KB - 5 RONDE**\n${game.hostName} vs ${message.author.username}\n\n${resultsText}\n\n📊 Skor: ${game.hostName} ${result.playerWins} - ${result.opponentWins} ${message.author.username}\n💰 Taruhan: ${formatNumber(game.betAmount)} coin/player\n💎 Total Pot: ${formatNumber(totalPot)} coin\n`;
-                if (winner) {
-                    reply += `💰 Fee: ${formatNumber(fee)} coin\n🏆 **Pemenang: ${winnerName}**\n💸 Mendapat: ${formatNumber(totalPot - fee)} coin (profit ${formatNumber(totalPot - fee - game.betAmount)})`;
-                } else {
-                    reply += `🤝 **DRAW!** Taruhan dikembalikan (tanpa fee)`;
-                }
-                return message.reply(reply);
-            } else {
-                return handleJoin(gameType, args[0]?.toUpperCase(), gameFunc);
-            }
+            return handleJoin(gameType, args[0]?.toUpperCase(), gameFunc);
         }
 
-        // PVH HOST
+        // ==================== KBJ KHUSUS ====================
+        if (cmd === 'kbj') {
+            const gameId = args[0]?.toUpperCase();
+            const game = activeGames.get(gameId);
+            if (!game) return message.reply('❌ Game tidak ditemukan!');
+            if (game.type !== 'KB') return message.reply('❌ Ini bukan game KB!');
+            if (game.hostId === message.author.id) return message.reply('❌ Tidak bisa join game sendiri!');
+
+            const joiner = db.users[message.author.id];
+            if (joiner.coins < game.betAmount) {
+                return message.reply(`❌ Coin tidak cukup! Kamu butuh ${formatNumber(game.betAmount)} coin.`);
+            }
+
+            joiner.coins -= game.betAmount;
+            const host = db.users[game.hostId];
+
+            const result = playKB(5, game.hostChoice);
+            let winner = null, winnerObj = null, winnerName = '';
+            if (result.playerWins > result.opponentWins) {
+                winner = game.hostId; winnerName = game.hostName; winnerObj = host;
+            } else if (result.opponentWins > result.playerWins) {
+                winner = message.author.id; winnerName = message.author.username; winnerObj = joiner;
+            }
+
+            const totalPot = game.betAmount * 2;
+            const fee = calculateFee(totalPot);
+
+            if (winner) {
+                winnerObj.coins += totalPot - fee;
+                winnerObj.gamesWon++;
+                applyFee(totalPot, winner, winnerName, 'KB');
+            } else {
+                host.coins += game.betAmount;
+                joiner.coins += game.betAmount;
+            }
+
+            host.gamesPlayed++; joiner.gamesPlayed++;
+            host.gamesVsPlayer++; joiner.gamesVsPlayer++;
+            saveDB();
+            activeGames.delete(gameId);
+
+            const resultsText = result.results.join('\n');
+            let reply = `🎮 **KB - 5 RONDE**\n${game.hostName} vs ${message.author.username}\n\n${resultsText}\n\n📊 Skor: ${game.hostName} ${result.playerWins} - ${result.opponentWins} ${message.author.username}\n💰 Taruhan: ${formatNumber(game.betAmount)} coin/player\n💎 Total Pot: ${formatNumber(totalPot)} coin\n`;
+            if (winner) {
+                reply += `💰 Fee: ${formatNumber(fee)} coin\n🏆 **Pemenang: ${winnerName}**\n💸 Mendapat: ${formatNumber(totalPot - fee)} coin (profit ${formatNumber(totalPot - fee - game.betAmount)})`;
+            } else {
+                reply += `🤝 **DRAW!** Taruhan dikembalikan (tanpa fee)`;
+            }
+            return message.reply(reply);
+        }
+
+        // ==================== PVH HOST ====================
         const pvhHost = {
             hleme: ['LEME', 'leme'],
             hreme: ['REME', 'reme'],
@@ -788,7 +881,7 @@ client.on('messageCreate', async (message) => {
             return handlePVHHost(gameType, parseInt(args[0]), joinCmd);
         }
 
-        // PVH JOIN
+        // ==================== PVH JOIN ====================
         const pvhJoin = {
             leme: 'LEME',
             reme: 'REME',
@@ -799,8 +892,10 @@ client.on('messageCreate', async (message) => {
             return handlePVHJoin(pvhJoin[cmd], args[0]?.toUpperCase());
         }
 
-        // ==================== ADMIN ====================
+        // ==================== ADMIN COMMANDS ====================
         if (config.ownerIds.includes(message.author.id)) {
+            
+            // ADD COIN
             if (cmd === 'addcoin') {
                 if (args.length < 2) return message.reply('❌ Gunakan: `.addcoin @user jumlah`');
                 const target = message.mentions.users.first();
@@ -814,6 +909,7 @@ client.on('messageCreate', async (message) => {
                 return message.reply(`✅ **ADD COIN**\n${target} mendapat +${formatNumber(amount)} coin`);
             }
 
+            // DEL COIN
             if (cmd === 'delcoin') {
                 if (args.length < 2) return message.reply('❌ Gunakan: `.delcoin @user jumlah`');
                 const target = message.mentions.users.first();
@@ -828,6 +924,7 @@ client.on('messageCreate', async (message) => {
                 return message.reply(`✅ **DEL COIN**\n${target} kehilangan -${formatNumber(amount)} coin`);
             }
 
+            // FEE STATUS
             if (cmd === 'feestatus') {
                 return message.reply(
                     `💰 **STATUS FEE**\n` +
@@ -836,6 +933,114 @@ client.on('messageCreate', async (message) => {
                     `Min: ${config.fee.minFee} | Max: ${config.fee.maxFee}\n` +
                     `Total Terkumpul: ${formatNumber(db.feeWallet)} 🪙`
                 );
+            }
+
+            // CREATE GIFT CODE
+            if (cmd === 'creategift' || cmd === 'makegift') {
+                if (args.length < 1) {
+                    return message.reply(
+                        '❌ **Gunakan:** `.creategift jumlah [kode] [hari]`\n' +
+                        'Contoh:\n' +
+                        '• `.creategift 1000` (random code, 30 hari)\n' +
+                        '• `.creategift 500 WELCOME 7` (custom code, 7 hari)'
+                    );
+                }
+                
+                const amount = parseInt(args[0]);
+                if (isNaN(amount) || amount <= 0) return message.reply('❌ Jumlah coin tidak valid!');
+                
+                let customCode = null;
+                let expiresInDays = 30;
+                
+                if (args.length >= 2) {
+                    customCode = args[1].toUpperCase();
+                    if (customCode.length < 3 || customCode.length > 15) return message.reply('❌ Kode harus antara 3-15 karakter!');
+                    if (!/^[A-Z0-9]+$/.test(customCode)) return message.reply('❌ Kode hanya boleh huruf dan angka!');
+                }
+                
+                if (args.length >= 3) {
+                    const days = parseInt(args[2]);
+                    if (!isNaN(days) && days > 0) expiresInDays = days;
+                }
+                
+                const gift = createGiftCode(amount, message.author.id, message.author.username, customCode, expiresInDays);
+                
+                if (!gift) return message.reply(`❌ Kode **${customCode}** sudah ada! Gunakan kode lain.`);
+                
+                const embed = new EmbedBuilder()
+                    .setColor('#00FF00')
+                    .setTitle('✅ GIFT CODE DIBUAT')
+                    .addFields(
+                        { name: 'Kode Gift', value: `\`${gift.code}\``, inline: true },
+                        { name: 'Jumlah Coin', value: `${formatNumber(amount)} 🪙`, inline: true },
+                        { name: 'Masa Berlaku', value: `${expiresInDays} hari`, inline: true },
+                        { name: 'Expired Pada', value: new Date(gift.expiresAt).toLocaleDateString(), inline: true },
+                        { name: 'Dibuat Oleh', value: message.author.username, inline: true },
+                        { name: 'Cara Redeem', value: `.tukar ${gift.code}`, inline: true }
+                    )
+                    .setFooter({ text: 'Simpan kode ini dengan baik!' });
+                
+                return message.channel.send({ embeds: [embed] });
+            }
+
+            // LIST GIFT CODES
+            if (cmd === 'giftlist' || cmd === 'listgift') {
+                if (db.giftCodes.length === 0) return message.reply('📭 Belum ada gift code yang dibuat.');
+                
+                const active = db.giftCodes.filter(g => !g.used && new Date(g.expiresAt) > new Date());
+                const expired = db.giftCodes.filter(g => !g.used && new Date(g.expiresAt) <= new Date());
+                const used = db.giftCodes.filter(g => g.used);
+                
+                let reply = '🎁 **DAFTAR GIFT CODE**\n\n';
+                
+                reply += `**🟢 AKTIF (${active.length}):**\n`;
+                if (active.length === 0) reply += 'Tidak ada\n';
+                else {
+                    active.slice(0, 10).forEach(g => {
+                        const daysLeft = Math.ceil((new Date(g.expiresAt) - new Date()) / (1000 * 60 * 60 * 24));
+                        reply += `• \`${g.code}\` - ${formatNumber(g.coins)} coin (${daysLeft} hari lagi)\n`;
+                    });
+                    if (active.length > 10) reply += `... dan ${active.length - 10} lainnya\n`;
+                }
+                
+                reply += `\n**🔴 EXPIRED (${expired.length}):**\n`;
+                if (expired.length === 0) reply += 'Tidak ada\n';
+                else {
+                    expired.slice(0, 5).forEach(g => {
+                        reply += `• \`${g.code}\` - ${formatNumber(g.coins)} coin\n`;
+                    });
+                }
+                
+                reply += `\n**✅ TERPAKAI (${used.length}):**\n`;
+                if (used.length === 0) reply += 'Tidak ada\n';
+                else {
+                    used.slice(-5).reverse().forEach(g => {
+                        reply += `• \`${g.code}\` - ${formatNumber(g.coins)} coin - oleh ${g.usedByUsername}\n`;
+                    });
+                }
+                
+                return message.reply(reply);
+            }
+
+            // DELETE GIFT CODE
+            if (cmd === 'deletegift' || cmd === 'delgift') {
+                if (!args[0]) return message.reply('❌ Gunakan: `.deletegift KODE_GIFT`');
+                
+                const code = args[0].toUpperCase();
+                const index = db.giftCodes.findIndex(g => g.code === code);
+                
+                if (index === -1) return message.reply(`❌ Kode **${code}** tidak ditemukan!`);
+                
+                const gift = db.giftCodes[index];
+                
+                if (gift.used) {
+                    return message.reply(`❌ Kode **${code}** sudah digunakan oleh ${gift.usedByUsername}, tidak bisa dihapus!`);
+                }
+                
+                db.giftCodes.splice(index, 1);
+                saveDB();
+                
+                return message.reply(`✅ Kode **${code}** berhasil dihapus!`);
             }
         }
 
@@ -853,3 +1058,4 @@ client.login(config.token).catch(err => {
 console.log(`🚀 ${config.botName} starting...`);
 console.log(`📱 Deposit: ${config.deposit.dana}`);
 console.log(`💰 Starting coins: ${config.startingCoins}`);
+console.log(`🎁 Gift code system ready!`);
