@@ -1,4 +1,4 @@
-// DUEL RXV TEAMRXVVX - BOT LENGKAP DENGAN SEMUA FITUR + REDEEM
+// DUEL RXV TEAMRXVVX - BOT LENGKAP DENGAN GIFT CODE SALDO
 // Simpan sebagai index.js
 
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
@@ -92,7 +92,9 @@ function applyFee(amount, userId, username, gameType) {
     return fee;
 }
 
-// ==================== FUNGSI GIFT CODE ====================
+// ==================== FUNGSI GIFT CODE DENGAN SALDO ====================
+
+// Fungsi untuk generate random code
 function generateGiftCode(length = 8) {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ123456789';
     let code = '';
@@ -102,29 +104,86 @@ function generateGiftCode(length = 8) {
     return code;
 }
 
-function createGiftCode(amount, createdBy, username, customCode = null, expiresInDays = 30) {
+// Fungsi untuk membuat gift code dengan saldo terbatas
+function createGiftCode(totalBalance, perUserAmount, createdBy, username, customCode = null, expiresInDays = 30) {
     const code = customCode ? customCode.toUpperCase() : generateGiftCode();
     
+    // Cek apakah kode sudah ada
     if (db.giftCodes.some(g => g.code === code)) {
         return null;
     }
     
+    // Hitung maksimal pengguna berdasarkan saldo
+    const maxUses = Math.floor(totalBalance / perUserAmount);
+    
     const gift = {
         code: code,
-        coins: amount,
-        used: false,
+        perUserAmount: perUserAmount,      // Jumlah per orang
+        totalBalance: totalBalance,        // Total saldo tersedia
+        remainingBalance: totalBalance,     // Sisa saldo
+        maxUses: maxUses,                   // Maksimal orang (dari perhitungan)
+        currentUses: 0,                      // Sudah dipakai berapa orang
+        usedBy: [],                          // Array untuk menyimpan siapa saja yang pakai
         createdBy: createdBy,
         createdByUsername: username,
         createdAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString(),
-        usedBy: null,
-        usedByUsername: null,
-        usedAt: null
+        isActive: true,
+        deactivatedAt: null
     };
     
     db.giftCodes.push(gift);
     saveDB();
     return gift;
+}
+
+// Fungsi untuk cek apakah gift masih berlaku
+function isGiftValid(gift) {
+    if (!gift.isActive) return { valid: false, reason: 'Kode sudah dinonaktifkan' };
+    if (gift.remainingBalance < gift.perUserAmount) return { valid: false, reason: 'Saldo sudah habis' };
+    if (new Date(gift.expiresAt) < new Date()) return { valid: false, reason: 'Kode sudah kedaluwarsa' };
+    return { valid: true };
+}
+
+// Fungsi untuk redeem gift
+function redeemGift(gift, userId, username) {
+    // Cek apakah user sudah pernah pakai kode ini
+    if (gift.usedBy.some(u => u.userId === userId)) {
+        return { success: false, reason: 'Kamu sudah pernah menggunakan kode ini' };
+    }
+    
+    // Cek apakah saldo cukup
+    if (gift.remainingBalance < gift.perUserAmount) {
+        return { success: false, reason: 'Saldo kode ini sudah habis' };
+    }
+    
+    const amount = gift.perUserAmount;
+    
+    // Tambahkan user ke daftar pemakai
+    gift.usedBy.push({
+        userId: userId,
+        username: username,
+        amount: amount,
+        usedAt: new Date().toISOString()
+    });
+    
+    // Kurangi saldo
+    gift.remainingBalance -= amount;
+    gift.currentUses = gift.usedBy.length;
+    
+    // Jika saldo habis, nonaktifkan otomatis
+    if (gift.remainingBalance < gift.perUserAmount) {
+        gift.isActive = false;
+        gift.deactivatedAt = new Date().toISOString();
+    }
+    
+    saveDB();
+    return { 
+        success: true, 
+        amount: amount,
+        remainingBalance: gift.remainingBalance,
+        remainingUsers: Math.floor(gift.remainingBalance / gift.perUserAmount)
+    };
 }
 
 // ==================== CLIENT ====================
@@ -379,6 +438,7 @@ client.on('messageCreate', async (message) => {
                     { name: '📋 MENU', value: '`.menu` `.help` `.admin` `.tukar`' },
                     { name: '💰 EKONOMI', value: '`.depo` `.qris` `.tf @user` `.cc` `.lb`' },
                     { name: '🎲 SPIN GRATIS', value: '`.spin` - Lempar 3 dadu gratis' },
+                    { name: '🎁 GIFT CODE', value: '`.tukar KODE` - Redeem gift\nContoh: `.tukar HUTRI75`' },
                     { name: '⚔️ PVP (5 RONDE)', value: '`.reme 100` `.qeme 100` `.qq 100` `.csn 100` `.btk 100` `.dirt 100` `.bc 100` `.bj 100` `.kb k 100` `.dadu 100` `.card 100` `.flip 100`' },
                     { name: '🤝 VS BOT', value: '`.hleme 100` `.leme ID` `.hreme 100` `.reme ID` `.hlewa 100` `.lewa ID` `.hr 100` `.rw ID`' },
                     { name: '🔍 ROOM', value: '`.rooms` `.cancel ID`' }
@@ -508,35 +568,61 @@ client.on('messageCreate', async (message) => {
             
             const gift = db.giftCodes[giftIndex];
             
-            if (gift.used) {
-                return message.reply('❌ Kode gift sudah **digunakan** oleh seseorang!');
+            // Cek validitas
+            if (!gift.isActive) {
+                return message.reply('❌ Kode gift sudah **dinonaktifkan** oleh admin!');
+            }
+            
+            if (gift.usedBy.some(u => u.userId === message.author.id)) {
+                return message.reply('❌ Kamu sudah pernah menggunakan kode ini!');
+            }
+            
+            if (gift.remainingBalance < gift.perUserAmount) {
+                return message.reply('❌ Maaf, saldo kode ini sudah habis!');
             }
             
             if (new Date(gift.expiresAt) < now) {
                 return message.reply('❌ Kode gift sudah **kedaluwarsa**!');
             }
             
-            user.coins += gift.coins;
+            // Proses redeem
+            const amount = gift.perUserAmount;
+            user.coins += amount;
             
-            db.giftCodes[giftIndex].used = true;
-            db.giftCodes[giftIndex].usedBy = message.author.id;
-            db.giftCodes[giftIndex].usedByUsername = message.author.username;
-            db.giftCodes[giftIndex].usedAt = now.toISOString();
+            // Update gift
+            gift.usedBy.push({
+                userId: message.author.id,
+                username: message.author.username,
+                amount: amount,
+                usedAt: now.toISOString()
+            });
+            
+            gift.remainingBalance -= amount;
+            gift.currentUses = gift.usedBy.length;
+            
+            // Cek apakah saldo habis
+            const isLastUser = gift.remainingBalance < gift.perUserAmount;
+            if (isLastUser) {
+                gift.isActive = false;
+                gift.deactivatedAt = now.toISOString();
+            }
             
             saveDB();
             
+            // Buat embed response
             const embed = new EmbedBuilder()
                 .setColor('#00FF00')
                 .setTitle('🎁 REDEEM GIFT CODE BERHASIL!')
                 .setDescription(`Selamat ${message.author.username}!`)
                 .addFields(
                     { name: 'Kode Gift', value: `\`${code}\``, inline: true },
-                    { name: 'Jumlah Coin', value: `+${formatNumber(gift.coins)} 🪙`, inline: true },
-                    { name: 'Total Coin', value: formatNumber(user.coins) + ' 🪙', inline: true },
-                    { name: 'Dibuat Oleh', value: gift.createdByUsername, inline: true },
-                    { name: 'Tanggal Redeem', value: new Date().toLocaleDateString(), inline: true }
+                    { name: 'Kamu Mendapat', value: `+${formatNumber(amount)} 🪙`, inline: true },
+                    { name: 'Sisa Saldo', value: `${formatNumber(gift.remainingBalance)} / ${formatNumber(gift.totalBalance)} 🪙`, inline: true },
+                    { name: 'Sisa Kuota', value: `${Math.floor(gift.remainingBalance / gift.perUserAmount)} orang lagi`, inline: true },
+                    { name: 'Total Coinmu', value: `${formatNumber(user.coins)} 🪙`, inline: true },
+                    { name: 'Dibuat Oleh', value: gift.createdByUsername, inline: true }
                 )
-                .setFooter({ text: 'Terima kasih telah menggunakan gift code!' });
+                .setFooter({ text: isLastUser ? '⚠️ Kamu adalah pengguna TERAKHIR! Saldo habis.' : 'Terima kasih telah menggunakan gift code!' });
             
             return message.channel.send({ embeds: [embed] });
         }
@@ -935,35 +1021,49 @@ client.on('messageCreate', async (message) => {
                 );
             }
 
-            // CREATE GIFT CODE
+            // CREATE GIFT CODE DENGAN SALDO
             if (cmd === 'creategift' || cmd === 'makegift') {
-                if (args.length < 1) {
+                // Format: .creategift total_saldo per_orang [kode] [hari]
+                // Contoh: .creategift 50000 3000 HUTRI75 7
+                
+                if (args.length < 2) {
                     return message.reply(
-                        '❌ **Gunakan:** `.creategift jumlah [kode] [hari]`\n' +
+                        '❌ **Gunakan:** `.creategift total_saldo per_orang [kode] [hari]`\n' +
                         'Contoh:\n' +
-                        '• `.creategift 1000` (random code, 30 hari)\n' +
-                        '• `.creategift 500 WELCOME 7` (custom code, 7 hari)'
+                        '• `.creategift 50000 3000` (random code, 30 hari)\n' +
+                        '• `.creategift 50000 3000 HUTRI75 7` (custom code, 7 hari)\n\n' +
+                        '💡 50.000 saldo / 3.000 per orang = 16 orang maksimal'
                     );
                 }
                 
-                const amount = parseInt(args[0]);
-                if (isNaN(amount) || amount <= 0) return message.reply('❌ Jumlah coin tidak valid!');
+                const totalBalance = parseInt(args[0]);
+                const perUserAmount = parseInt(args[1]);
+                
+                if (isNaN(totalBalance) || totalBalance <= 0) return message.reply('❌ Total saldo tidak valid!');
+                if (isNaN(perUserAmount) || perUserAmount <= 0) return message.reply('❌ Jumlah per orang tidak valid!');
+                
+                if (perUserAmount > totalBalance) {
+                    return message.reply('❌ Jumlah per orang tidak boleh lebih besar dari total saldo!');
+                }
                 
                 let customCode = null;
                 let expiresInDays = 30;
                 
-                if (args.length >= 2) {
-                    customCode = args[1].toUpperCase();
+                if (args.length >= 3) {
+                    customCode = args[2].toUpperCase();
                     if (customCode.length < 3 || customCode.length > 15) return message.reply('❌ Kode harus antara 3-15 karakter!');
                     if (!/^[A-Z0-9]+$/.test(customCode)) return message.reply('❌ Kode hanya boleh huruf dan angka!');
                 }
                 
-                if (args.length >= 3) {
-                    const days = parseInt(args[2]);
+                if (args.length >= 4) {
+                    const days = parseInt(args[3]);
                     if (!isNaN(days) && days > 0) expiresInDays = days;
                 }
                 
-                const gift = createGiftCode(amount, message.author.id, message.author.username, customCode, expiresInDays);
+                const maxUses = Math.floor(totalBalance / perUserAmount);
+                const remainingBalance = totalBalance - (maxUses * perUserAmount);
+                
+                const gift = createGiftCode(totalBalance, perUserAmount, message.author.id, message.author.username, customCode, expiresInDays);
                 
                 if (!gift) return message.reply(`❌ Kode **${customCode}** sudah ada! Gunakan kode lain.`);
                 
@@ -972,7 +1072,10 @@ client.on('messageCreate', async (message) => {
                     .setTitle('✅ GIFT CODE DIBUAT')
                     .addFields(
                         { name: 'Kode Gift', value: `\`${gift.code}\``, inline: true },
-                        { name: 'Jumlah Coin', value: `${formatNumber(amount)} 🪙`, inline: true },
+                        { name: 'Total Saldo', value: `${formatNumber(totalBalance)} 🪙`, inline: true },
+                        { name: 'Per Orang', value: `${formatNumber(perUserAmount)} 🪙`, inline: true },
+                        { name: 'Maksimal Pengguna', value: `${maxUses} orang`, inline: true },
+                        { name: 'Sisa Saldo', value: `${formatNumber(remainingBalance)} 🪙 (tidak cukup untuk 1 orang)`, inline: true },
                         { name: 'Masa Berlaku', value: `${expiresInDays} hari`, inline: true },
                         { name: 'Expired Pada', value: new Date(gift.expiresAt).toLocaleDateString(), inline: true },
                         { name: 'Dibuat Oleh', value: message.author.username, inline: true },
@@ -983,13 +1086,48 @@ client.on('messageCreate', async (message) => {
                 return message.channel.send({ embeds: [embed] });
             }
 
-            // LIST GIFT CODES
+            // GIFT INFO
+            if (cmd === 'giftinfo') {
+                if (!args[0]) return message.reply('❌ Gunakan: `.giftinfo KODE`');
+                
+                const code = args[0].toUpperCase();
+                const gift = db.giftCodes.find(g => g.code === code);
+                
+                if (!gift) return message.reply(`❌ Kode **${code}** tidak ditemukan!`);
+                
+                const remainingUsers = Math.floor(gift.remainingBalance / gift.perUserAmount);
+                const status = !gift.isActive ? '🔴 Nonaktif' : 
+                               (gift.remainingBalance < gift.perUserAmount) ? '🔴 Habis' :
+                               (new Date(gift.expiresAt) < new Date()) ? '⚠️ Expired' : '🟢 Aktif';
+                
+                let reply = `🎁 **INFORMASI GIFT CODE: ${code}**\n\n`;
+                reply += `💰 Total Saldo: ${formatNumber(gift.totalBalance)} 🪙\n`;
+                reply += `💸 Per Orang: ${formatNumber(gift.perUserAmount)} 🪙\n`;
+                reply += `📊 Sisa Saldo: ${formatNumber(gift.remainingBalance)} / ${formatNumber(gift.totalBalance)} 🪙\n`;
+                reply += `👥 Sudah Digunakan: ${gift.currentUses} orang\n`;
+                reply += `👥 Sisa Kuota: ${remainingUsers} orang lagi\n`;
+                reply += `⏳ Status: ${status}\n`;
+                reply += `📅 Dibuat: ${new Date(gift.createdAt).toLocaleDateString()} oleh ${gift.createdByUsername}\n`;
+                reply += `⏰ Expired: ${new Date(gift.expiresAt).toLocaleDateString()}\n\n`;
+                
+                if (gift.usedBy.length > 0) {
+                    reply += `👤 **DAFTAR PENGGUNA (${gift.usedBy.length} orang):**\n`;
+                    gift.usedBy.slice(-10).reverse().forEach((u, i) => {
+                        reply += `${i+1}. ${u.username} - ${formatNumber(u.amount)} 🪙 - ${new Date(u.usedAt).toLocaleDateString()}\n`;
+                    });
+                }
+                
+                return message.reply(reply);
+            }
+
+            // LIST ALL GIFT CODES
             if (cmd === 'giftlist' || cmd === 'listgift') {
                 if (db.giftCodes.length === 0) return message.reply('📭 Belum ada gift code yang dibuat.');
                 
-                const active = db.giftCodes.filter(g => !g.used && new Date(g.expiresAt) > new Date());
-                const expired = db.giftCodes.filter(g => !g.used && new Date(g.expiresAt) <= new Date());
-                const used = db.giftCodes.filter(g => g.used);
+                const now = new Date();
+                const active = db.giftCodes.filter(g => g.isActive && g.remainingBalance >= g.perUserAmount && new Date(g.expiresAt) > now);
+                const habis = db.giftCodes.filter(g => !g.isActive || g.remainingBalance < g.perUserAmount);
+                const expired = db.giftCodes.filter(g => new Date(g.expiresAt) <= now && g.remainingBalance >= g.perUserAmount);
                 
                 let reply = '🎁 **DAFTAR GIFT CODE**\n\n';
                 
@@ -997,34 +1135,190 @@ client.on('messageCreate', async (message) => {
                 if (active.length === 0) reply += 'Tidak ada\n';
                 else {
                     active.slice(0, 10).forEach(g => {
-                        const daysLeft = Math.ceil((new Date(g.expiresAt) - new Date()) / (1000 * 60 * 60 * 24));
-                        reply += `• \`${g.code}\` - ${formatNumber(g.coins)} coin (${daysLeft} hari lagi)\n`;
+                        const remainingUsers = Math.floor(g.remainingBalance / g.perUserAmount);
+                        const daysLeft = Math.ceil((new Date(g.expiresAt) - now) / (1000 * 60 * 60 * 24));
+                        reply += `• \`${g.code}\` - ${formatNumber(g.totalBalance)}/${formatNumber(g.remainingBalance)} sisa - ${formatNumber(g.perUserAmount)}/org - ${remainingUsers} org - ${daysLeft} hari lagi\n`;
                     });
                     if (active.length > 10) reply += `... dan ${active.length - 10} lainnya\n`;
                 }
                 
-                reply += `\n**🔴 EXPIRED (${expired.length}):**\n`;
-                if (expired.length === 0) reply += 'Tidak ada\n';
+                reply += `\n**🔴 HABIS (${habis.length}):**\n`;
+                if (habis.length === 0) reply += 'Tidak ada\n';
                 else {
-                    expired.slice(0, 5).forEach(g => {
-                        reply += `• \`${g.code}\` - ${formatNumber(g.coins)} coin\n`;
+                    habis.slice(0, 5).forEach(g => {
+                        reply += `• \`${g.code}\` - ${formatNumber(g.totalBalance)}/${formatNumber(g.remainingBalance)} sisa - ${g.currentUses}/${Math.floor(g.totalBalance/g.perUserAmount)} org\n`;
                     });
                 }
                 
-                reply += `\n**✅ TERPAKAI (${used.length}):**\n`;
-                if (used.length === 0) reply += 'Tidak ada\n';
+                reply += `\n**⚠️ EXPIRED (${expired.length}):**\n`;
+                if (expired.length === 0) reply += 'Tidak ada\n';
                 else {
-                    used.slice(-5).reverse().forEach(g => {
-                        reply += `• \`${g.code}\` - ${formatNumber(g.coins)} coin - oleh ${g.usedByUsername}\n`;
+                    expired.slice(0, 5).forEach(g => {
+                        reply += `• \`${g.code}\` - ${formatNumber(g.totalBalance)}/${formatNumber(g.remainingBalance)} sisa - expired ${new Date(g.expiresAt).toLocaleDateString()}\n`;
                     });
                 }
                 
                 return message.reply(reply);
             }
 
-            // DELETE GIFT CODE
+            // ADD GIFT BALANCE
+            if (cmd === 'addgiftbalance') {
+                if (args.length < 2) return message.reply('❌ Gunakan: `.addgiftbalance KODE jumlah`');
+                
+                const code = args[0].toUpperCase();
+                const amount = parseInt(args[1]);
+                
+                if (isNaN(amount) || amount <= 0) return message.reply('❌ Jumlah tidak valid');
+                
+                const gift = db.giftCodes.find(g => g.code === code);
+                if (!gift) return message.reply(`❌ Kode **${code}** tidak ditemukan!`);
+                
+                const oldRemaining = gift.remainingBalance;
+                const oldMaxUses = Math.floor(gift.totalBalance / gift.perUserAmount);
+                
+                gift.totalBalance += amount;
+                gift.remainingBalance += amount;
+                
+                const newMaxUses = Math.floor(gift.totalBalance / gift.perUserAmount);
+                const additionalUsers = newMaxUses - oldMaxUses;
+                
+                if (gift.remainingBalance >= gift.perUserAmount && !gift.isActive) {
+                    gift.isActive = true;
+                    gift.deactivatedAt = null;
+                }
+                
+                saveDB();
+                
+                return message.reply(
+                    `✅ **SALDO GIFT DITAMBAH**\n` +
+                    `Kode: \`${code}\`\n` +
+                    `💰 Saldo Sebelum: ${formatNumber(oldRemaining)} 🪙\n` +
+                    `➕ Ditambah: ${formatNumber(amount)} 🪙\n` +
+                    `💰 Saldo Sekarang: ${formatNumber(gift.remainingBalance)} 🪙\n` +
+                    `👥 Kuota Tambahan: ${additionalUsers} orang lagi\n` +
+                    `👥 Total Kuota: ${newMaxUses} orang`
+                );
+            }
+
+            // SET GIFT AMOUNT PER ORANG
+            if (cmd === 'setgiftamount') {
+                if (args.length < 2) return message.reply('❌ Gunakan: `.setgiftamount KODE jumlah_baru`');
+                
+                const code = args[0].toUpperCase();
+                const newAmount = parseInt(args[1]);
+                
+                if (isNaN(newAmount) || newAmount <= 0) return message.reply('❌ Jumlah tidak valid');
+                
+                const gift = db.giftCodes.find(g => g.code === code);
+                if (!gift) return message.reply(`❌ Kode **${code}** tidak ditemukan!`);
+                
+                if (newAmount > gift.remainingBalance) {
+                    return message.reply(`❌ Jumlah per orang tidak boleh lebih besar dari sisa saldo (${formatNumber(gift.remainingBalance)} 🪙)!`);
+                }
+                
+                const oldAmount = gift.perUserAmount;
+                gift.perUserAmount = newAmount;
+                
+                const newMaxUses = Math.floor(gift.totalBalance / newAmount);
+                
+                saveDB();
+                
+                return message.reply(
+                    `✅ **JUMLAH PER ORANG DIUBAH**\n` +
+                    `Kode: \`${code}\`\n` +
+                    `💸 Sebelum: ${formatNumber(oldAmount)} 🪙 per orang\n` +
+                    `💸 Sesudah: ${formatNumber(newAmount)} 🪙 per orang\n` +
+                    `💰 Sisa Saldo: ${formatNumber(gift.remainingBalance)} 🪙\n` +
+                    `👥 Sisa Kuota Baru: ${Math.floor(gift.remainingBalance / newAmount)} orang\n` +
+                        `📊 Total Kuota Maksimal: ${newMaxUses} orang`
+                );
+            }
+
+            // DEACTIVATE GIFT
+            if (cmd === 'deactivategift') {
+                if (!args[0]) return message.reply('❌ Gunakan: `.deactivategift KODE`');
+                
+                const code = args[0].toUpperCase();
+                const gift = db.giftCodes.find(g => g.code === code);
+                
+                if (!gift) return message.reply(`❌ Kode **${code}** tidak ditemukan!`);
+                
+                if (!gift.isActive) return message.reply(`❌ Kode **${code}** sudah tidak aktif!`);
+                
+                gift.isActive = false;
+                gift.deactivatedAt = new Date().toISOString();
+                saveDB();
+                
+                return message.reply(
+                    `✅ **KODE DINONAKTIFKAN**\n` +
+                    `Kode: \`${code}\`\n` +
+                    `💰 Sisa Saldo: ${formatNumber(gift.remainingBalance)} 🪙\n` +
+                    `👥 Sisa Kuota: ${Math.floor(gift.remainingBalance / gift.perUserAmount)} orang\n` +
+                    `⚠️ Kode tidak bisa digunakan lagi!`
+                );
+            }
+
+            // ACTIVATE GIFT
+            if (cmd === 'activategift') {
+                if (!args[0]) return message.reply('❌ Gunakan: `.activategift KODE`');
+                
+                const code = args[0].toUpperCase();
+                const gift = db.giftCodes.find(g => g.code === code);
+                
+                if (!gift) return message.reply(`❌ Kode **${code}** tidak ditemukan!`);
+                
+                if (gift.isActive) return message.reply(`❌ Kode **${code}** sudah aktif!`);
+                
+                if (gift.remainingBalance < gift.perUserAmount) {
+                    return message.reply(`❌ Tidak bisa mengaktifkan kode dengan saldo tidak cukup! Sisa: ${formatNumber(gift.remainingBalance)} 🪙`);
+                }
+                
+                if (new Date(gift.expiresAt) < new Date()) {
+                    return message.reply(`❌ Tidak bisa mengaktifkan kode yang sudah expired!`);
+                }
+                
+                gift.isActive = true;
+                gift.deactivatedAt = null;
+                saveDB();
+                
+                return message.reply(
+                    `✅ **KODE DIAKTIFKAN KEMBALI**\n` +
+                    `Kode: \`${code}\`\n` +
+                    `💰 Sisa Saldo: ${formatNumber(gift.remainingBalance)} 🪙\n` +
+                    `👥 Sisa Kuota: ${Math.floor(gift.remainingBalance / gift.perUserAmount)} orang`
+                );
+            }
+
+            // EXTEND GIFT
+            if (cmd === 'extendgift') {
+                if (args.length < 2) return message.reply('❌ Gunakan: `.extendgift KODE hari`');
+                
+                const code = args[0].toUpperCase();
+                const days = parseInt(args[1]);
+                
+                if (isNaN(days) || days <= 0) return message.reply('❌ Jumlah hari tidak valid');
+                
+                const gift = db.giftCodes.find(g => g.code === code);
+                if (!gift) return message.reply(`❌ Kode **${code}** tidak ditemukan!`);
+                
+                const oldExpiry = new Date(gift.expiresAt);
+                const newExpiry = new Date(oldExpiry.getTime() + days * 24 * 60 * 60 * 1000);
+                
+                gift.expiresAt = newExpiry.toISOString();
+                saveDB();
+                
+                return message.reply(
+                    `✅ **MASA BERLAKU DIPERPANJANG**\n` +
+                    `Kode: \`${code}\`\n` +
+                    `📅 Sebelum: ${oldExpiry.toLocaleDateString()}\n` +
+                    `📅 Sesudah: ${newExpiry.toLocaleDateString()} (+${days} hari)\n` +
+                    `💰 Sisa Saldo: ${formatNumber(gift.remainingBalance)} 🪙`
+                );
+            }
+
+            // DELETE GIFT
             if (cmd === 'deletegift' || cmd === 'delgift') {
-                if (!args[0]) return message.reply('❌ Gunakan: `.deletegift KODE_GIFT`');
+                if (!args[0]) return message.reply('❌ Gunakan: `.deletegift KODE`');
                 
                 const code = args[0].toUpperCase();
                 const index = db.giftCodes.findIndex(g => g.code === code);
@@ -1033,14 +1327,17 @@ client.on('messageCreate', async (message) => {
                 
                 const gift = db.giftCodes[index];
                 
-                if (gift.used) {
-                    return message.reply(`❌ Kode **${code}** sudah digunakan oleh ${gift.usedByUsername}, tidak bisa dihapus!`);
+                if (gift.usedBy.length > 0) {
+                    return message.reply(
+                        `❌ Kode **${code}** sudah digunakan oleh ${gift.usedBy.length} orang!\n` +
+                        `Gunakan \`.deactivategift ${code}\` untuk menonaktifkan saja.`
+                    );
                 }
                 
                 db.giftCodes.splice(index, 1);
                 saveDB();
                 
-                return message.reply(`✅ Kode **${code}** berhasil dihapus!`);
+                return message.reply(`✅ Kode **${code}** berhasil dihapus dari database!`);
             }
         }
 
