@@ -1,7 +1,7 @@
 {
   "name": "duel-rxv-bot",
   "version": "1.0.0",
-  "description": "DUEL RXV TEAMRXVVX - Real Betting Bot",
+  "description": "DUEL RXV TEAMRXVVX - Complete Discord Bot with All Features",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
